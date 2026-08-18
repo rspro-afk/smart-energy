@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Smart Energy - Premium Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background-color: #f1f5f9;
+            background-image: radial-gradient(circle at top right, #e2e8f0 0%, transparent 25%);
+        }
+        .glass-card { 
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            border-radius: 1.25rem;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+        }
+        .status-on {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.3);
+        }
+        .status-off {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.3);
+        }
+        .btn-mode-active {
+            background-color: white;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            color: #1e293b;
+        }
+        .pulse-green {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 1; }
+            50% { transform: scale(1.05); opacity: 0.8; }
+            100% { transform: scale(0.95); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen">
+
+    <div class="max-w-6xl mx-auto">
+        <!-- Header Section -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
+            <div>
+                <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">AI Smart <span class="text-indigo-600">Energy</span></h1>
+                <div class="flex items-center gap-3 mt-2">
+                    <div class="flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-200 rounded-full shadow-sm">
+                        <span id="mqtt-dot" class="w-2 h-2 rounded-full bg-red-500"></span>
+                        <span id="mqtt-status" class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Disconnected</span>
+                    </div>
+                    <div class="px-3 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full text-[11px] font-bold uppercase tracking-wider">
+                        Mode: <span id="mode-display">Manual</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mode Switcher -->
+            <div class="flex p-1.5 bg-slate-200/50 backdrop-blur-sm rounded-xl w-full md:w-auto">
+                <button onclick="setMode('manual')" id="btn-manual" class="flex-1 md:flex-none px-6 py-2.5 rounded-lg text-sm font-bold transition-all btn-mode-active">
+                    MANUAL
+                </button>
+                <button onclick="setMode('auto')" id="btn-auto" class="flex-1 md:flex-none px-6 py-2.5 rounded-lg text-sm font-bold transition-all text-slate-500">
+                    AUTO
+                </button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            
+            <!-- Main Content Area (Camera) -->
+            <div class="lg:col-span-7 space-y-6">
+                <div class="glass-card overflow-hidden">
+                    <div class="p-5 bg-white/50 border-b border-slate-100 flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-indigo-100 rounded-lg text-indigo-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                            </div>
+                            <span class="font-bold text-slate-800 tracking-tight">AI Vision Analytics</span>
+                        </div>
+                        <div id="people-badge-container" class="hidden flex items-center gap-2 bg-indigo-600 text-white px-4 py-1.5 rounded-full shadow-lg shadow-indigo-200 transition-all duration-300">
+                            <span class="w-2 h-2 rounded-full bg-white pulse-green"></span>
+                            <span id="people-badge" class="text-xs font-bold uppercase tracking-widest">0 PERSON</span>
+                        </div>
+                    </div>
+                    
+                    <div class="relative bg-slate-900 group">
+                        <img id="stream-img" crossorigin="anonymous" src="" class="hidden">
+                        <canvas id="canvas" class="w-full h-auto aspect-video"></canvas>
+                        
+                        <!-- Camera Placeholder -->
+                        <div id="cam-placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-slate-500 bg-slate-100">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 mb-3 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <span class="text-xs font-medium tracking-wider uppercase opacity-40">Camera Stream Offline</span>
+                        </div>
+                    </div>
+                    
+                    <div class="p-6 bg-white border-t border-slate-100 flex gap-3">
+                        <div class="relative flex-1">
+                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                                </svg>
+                            </span>
+                            <input type="text" id="esp-ip" placeholder="Masukkan IP ESP32 (e.g. 192.168.1.10)" 
+                                   class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all">
+                        </div>
+                        <button onclick="connectCam()" class="bg-slate-900 hover:bg-indigo-600 text-white px-8 py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-slate-200 active:scale-95">
+                            CONNECT
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Environment Stats -->
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="glass-card p-6 flex items-center gap-5">
+                        <div class="p-4 bg-orange-100 text-orange-600 rounded-2xl">
+                            <!-- Thermometer Icon -->
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 14.704V4.5a2.5 2.5 0 00-5 0v10.204a4.5 4.5 0 105 0z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ambient Temp</p>
+                            <h2 id="temp-val" class="text-2xl font-extrabold text-slate-800">--°C</h2>
+                        </div>
+                    </div>
+                    <div class="glass-card p-6 flex items-center gap-5">
+                        <div class="p-4 bg-blue-100 text-blue-600 rounded-2xl">
+                            <!-- Water Drop Icon -->
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 21c3.5 0 6.5-2.5 6.5-6.5C18.5 10 12 3 12 3S5.5 10 5.5 14.5c0 4 3 6.5 6.5 6.5z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Humidity</p>
+                            <h2 id="hum-val" class="text-2xl font-extrabold text-slate-800">--%</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Side Sidebar (Controls) -->
+            <div class="lg:col-span-5">
+                <h3 class="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    Smart Outlets Control
+                    <span class="h-[1px] bg-slate-200 flex-1"></span>
+                </h3>
+                <div id="outlet-container" class="space-y-5">
+                    <!-- Cards generated by JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const MQTT_HOST = "72.61.214.191";
+        const MQTT_PORT = 9001; 
+        let client;
+        let aiModel;
+        let currentMode = 'manual';
+        let relayStates = [false, false, false, false];
+        let lastSentPeopleCount = -1;
+
+        // GENERATE UI OUTLETS
+        const container = document.getElementById('outlet-container');
+        for (let i = 1; i <= 4; i++) {
+            container.innerHTML += `
+                <div id="card-${i}" class="glass-card p-5 border-l-4 border-slate-200 transition-all duration-300">
+                    <div class="flex justify-between items-start mb-6">
+                        <div class="flex items-center gap-3">
+                            <div id="icon-bg-${i}" class="p-2.5 bg-slate-100 text-slate-400 rounded-xl transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-slate-800 text-sm">Outlet #${i}</h4>
+                                <span id="status-text-${i}" class="text-[10px] font-extrabold uppercase text-slate-400">Offline</span>
+                            </div>
+                        </div>
+                        <button onclick="toggleRelay(${i})" id="btn-${i}" class="px-5 py-2 rounded-lg text-[11px] font-bold border border-slate-200 bg-white hover:bg-slate-50 transition-all active:scale-95">
+                            TURN ON
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 p-3 bg-slate-50 rounded-xl">
+                        <div class="text-center border-r border-slate-200">
+                            <p class="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">Power Consumption</p>
+                            <p id="p${i}-p" class="font-extrabold text-slate-700 text-base">0.0 <span class="text-[10px] font-medium opacity-50">W</span></p>
+                        </div>
+                        <div class="text-center">
+                            <p class="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">Voltage Level</p>
+                            <p id="p${i}-v" class="font-extrabold text-slate-700 text-base">0 <span class="text-[10px] font-medium opacity-50">V</span></p>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        // FUNGSI UNTUK MEMPERBARUI TAMPILAN CARD SECARA KONSISTEN
+        function updateOutletUI(num, isOn) {
+            const btn = document.getElementById(`btn-${num}`);
+            const card = document.getElementById(`card-${num}`);
+            const statusText = document.getElementById(`status-text-${num}`);
+            const iconBg = document.getElementById(`icon-bg-${num}`);
+
+            if (isOn) {
+                btn.innerText = "TURN OFF";
+                btn.className = `px-5 py-2 rounded-lg text-[11px] font-bold border border-emerald-600 bg-emerald-600 text-white transition-all active:scale-95 shadow-lg shadow-emerald-100`;
+                card.className = `glass-card p-5 border-l-4 border-emerald-500 transition-all duration-300 translate-x-1`;
+                statusText.innerText = "Active";
+                statusText.className = "text-[10px] font-extrabold uppercase text-emerald-600";
+                iconBg.className = "p-2.5 bg-emerald-100 text-emerald-600 rounded-xl transition-colors";
+            } else {
+                btn.innerText = "TURN ON";
+                btn.className = `px-5 py-2 rounded-lg text-[11px] font-bold border border-slate-200 bg-white hover:bg-slate-50 transition-all active:scale-95`;
+                card.className = `glass-card p-5 border-l-4 border-slate-200 transition-all duration-300`;
+                statusText.innerText = "Offline";
+                statusText.className = "text-[10px] font-extrabold uppercase text-slate-400";
+                iconBg.className = "p-2.5 bg-slate-100 text-slate-400 rounded-xl transition-colors";
+            }
+        }
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('mode-display').innerText = mode;
+            
+            const isManual = mode === 'manual';
+            document.getElementById('btn-manual').className = `flex-1 md:flex-none px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${isManual ? 'btn-mode-active' : 'text-slate-500'}`;
+            document.getElementById('btn-auto').className = `flex-1 md:flex-none px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${!isManual ? 'btn-mode-active' : 'text-slate-500'}`;
+            
+            if (client && client.isConnected()) {
+                client.send("home/system/mode", mode);
+            }
+
+            // Jika pindah ke manual, matikan UI secara visual (sesuai logika ESP32 yang mematikan relay saat pindah manual)
+            if (isManual) {
+                for(let i=1; i<=4; i++) {
+                    relayStates[i-1] = false;
+                    updateOutletUI(i, false);
+                }
+            }
+        }
+
+        function connectMQTT() {
+            const statusBadge = document.getElementById('mqtt-status');
+            const statusDot = document.getElementById('mqtt-dot');
+            
+            client = new Paho.MQTT.Client(MQTT_HOST, MQTT_PORT, "web_stage4_" + Math.random().toString(16).substr(2, 4));
+            
+            client.onConnectionLost = (responseObject) => {
+                statusBadge.innerText = "Disconnected";
+                statusDot.className = "w-2 h-2 rounded-full bg-red-500";
+                setTimeout(connectMQTT, 3000);
+            };
+
+            client.onMessageArrived = (msg) => {
+                try {
+                    const data = JSON.parse(msg.payloadString);
+                    if (msg.destinationName === "home/sensors") {
+                        document.getElementById('temp-val').innerText = (data.temp || 0).toFixed(1) + "°C";
+                        document.getElementById('hum-val').innerText = (data.hum || 0).toFixed(1) + "%";
+                    } else if (msg.destinationName === "home/energy") {
+                        // Sinkronisasi mode sistem dari ESP32 jika berbeda
+                        if (data.mode && data.mode !== currentMode) {
+                            currentMode = data.mode;
+                            document.getElementById('mode-display').innerText = currentMode;
+                            const isManual = currentMode === 'manual';
+                            document.getElementById('btn-manual').className = `flex-1 md:flex-none px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${isManual ? 'btn-mode-active' : 'text-slate-500'}`;
+                            document.getElementById('btn-auto').className = `flex-1 md:flex-none px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${!isManual ? 'btn-mode-active' : 'text-slate-500'}`;
+                        }
+
+                        // Ambil jumlah orang dari payload energi jika ada (ppl)
+                        const people = (typeof data.ppl !== 'undefined') ? data.ppl : 0;
+
+                        for (let i = 1; i <= 4; i++) {
+                            const p = data[`p${i}`] || 0;
+                            const v = data[`v${i}`] || 0;
+                            document.getElementById(`p${i}-p`).innerHTML = `${p.toFixed(1)} <span class="text-[10px] font-medium opacity-50">W</span>`;
+                            document.getElementById(`p${i}-v`).innerHTML = `${v.toFixed(0)} <span class="text-[10px] font-medium opacity-50">V</span>`;
+
+                            if (currentMode === 'auto') {
+                                const shouldBeOn = (people >= i);
+                                relayStates[i-1] = shouldBeOn;
+                                updateOutletUI(i, shouldBeOn);
+                            }
+                        }
+                    }
+                } catch(e) { console.error("MQTT Parse Error", e); }
+            };
+
+            client.connect({ 
+                onSuccess: () => { 
+                    statusBadge.innerText = "Connected";
+                    statusDot.className = "w-2 h-2 rounded-full bg-emerald-500 pulse-green";
+                    client.subscribe("home/sensors"); 
+                    client.subscribe("home/energy"); 
+                    client.send("home/system/mode", currentMode);
+                },
+                onFailure: () => { setTimeout(connectMQTT, 3000); }
+            });
+        }
+
+        async function initAI() { 
+            aiModel = await cocoSsd.load(); 
+            console.log("AI Model Loaded Successfully"); 
+        }
+
+        function connectCam() {
+            const ip = document.getElementById('esp-ip').value.trim();
+            if (!ip) return;
+            
+            document.getElementById('cam-placeholder').classList.add('hidden');
+            const img = document.getElementById('stream-img');
+            img.src = `http://${ip}/stream`;
+            img.onload = runDetection;
+        }
+
+        async function runDetection() {
+            const img = document.getElementById('stream-img');
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            const badgeContainer = document.getElementById('people-badge-container');
+            
+            if (img.complete && img.naturalWidth > 0) {
+                badgeContainer.classList.remove('hidden');
+                canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+                ctx.drawImage(img, 0, 0);
+                const predictions = await aiModel.detect(canvas);
+                let count = 0;
+                predictions.forEach(p => {
+                    if (p.class === 'person') {
+                        count++;
+                        ctx.strokeStyle = "#4f46e5"; ctx.lineWidth = 4;
+                        ctx.setLineDash([5, 5]);
+                        ctx.strokeRect(...p.bbox);
+                        
+                        // Draw label
+                        ctx.fillStyle = "#4f46e5";
+                        ctx.fillRect(p.bbox[0], p.bbox[1] - 25, 80, 25);
+                        ctx.fillStyle = "white";
+                        ctx.font = "bold 12px Plus Jakarta Sans";
+                        ctx.fillText("PERSON", p.bbox[0] + 5, p.bbox[1] - 8);
+                    }
+                });
+                document.getElementById('people-badge').innerText = count + (count > 1 ? " PEOPLE" : " PERSON");
+                
+                if (currentMode === 'auto' && client && client.isConnected()) {
+                    if (count !== lastSentPeopleCount) {
+                        client.send("home/people/count", count.toString());
+                        lastSentPeopleCount = count;
+                    }
+                }
+            }
+            requestAnimationFrame(runDetection);
+        }
+
+        function toggleRelay(num) {
+            if (currentMode === 'auto') {
+                alert("Sistem dalam mode OTOMATIS. Matikan mode AUTO untuk kontrol manual!");
+                return;
+            }
+            if (!client || !client.isConnected()) {
+                alert("Koneksi MQTT terputus! Periksa koneksi broker Anda.");
+                return;
+            }
+
+            relayStates[num-1] = !relayStates[num-1];
+            updateOutletUI(num, relayStates[num-1]);
+            
+            const state = relayStates[num-1] ? "ON" : "OFF";
+            client.send("home/relay" + num, state);
+        }
+
+        window.onload = () => { connectMQTT(); initAI(); };
+    </script>
+</body>
+</html>
