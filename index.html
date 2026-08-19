@@ -167,8 +167,11 @@
     </div>
 
     <script>
-        const MQTT_HOST = "72.61.214.191";
-        const MQTT_PORT = 9001; 
+        // --- PERUBAHAN ADA DI SINI ---
+        const MQTT_HOST = "veap-upnyk.id"; // Menggunakan domain Anda
+        const MQTT_PORT = 443; // Port HTTPS/WSS standar yang akan ditangani oleh Nginx
+        // ------------------------------
+        
         let client;
         let aiModel;
         let currentMode = 'manual';
@@ -301,7 +304,9 @@
                 } catch(e) { console.error("MQTT Parse Error", e); }
             };
 
+            // --- PERUBAHAN ADA DI SINI ---
             client.connect({ 
+                useSSL: true, // WAJIB ada agar Paho MQTT tahu untuk menggunakan wss://
                 onSuccess: () => { 
                     statusBadge.innerText = "Connected";
                     statusDot.className = "w-2 h-2 rounded-full bg-emerald-500 pulse-green";
@@ -311,6 +316,7 @@
                 },
                 onFailure: () => { setTimeout(connectMQTT, 3000); }
             });
+            // ------------------------------
         }
 
         async function initAI() { 
